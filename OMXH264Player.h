@@ -20,10 +20,9 @@ public slots:
  
 public:
     OMX_VIDEO_PARAM_PORTFORMATTYPE format;
-    OMX_TIME_CONFIG_CLOCKSTATETYPE cstate;
-    COMPONENT_T *video_decode, *video_scheduler, *video_render, *clock;
-    COMPONENT_T *list[5];
-    TUNNEL_T tunnel[4];
+    COMPONENT_T *video_decode;
+    COMPONENT_T *list[2];
+    // TUNNEL_T tunnel[1];
     ILCLIENT_T *client;
     int port_settings_changed;
     int first_packet;

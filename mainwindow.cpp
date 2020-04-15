@@ -119,7 +119,7 @@ int MainWindow::func()
 #if USE_H264BSF
             av_bitstream_filter_filter(h264bsfc, ifmt_ctx->streams[videoindex]->codec, NULL, &pkt.data, &pkt.size, pkt.data, pkt.size, 0);
 #endif
-            printf("Write Video Packet. size:%d\tpts:%lld\n",pkt.size,pkt.pts);
+//            printf("Write Video Packet. size:%d\tpts:%lld\n",pkt.size,pkt.pts);
             fwrite(pkt.data,1,pkt.size,fp_video);
             if (pkt.size > 81920)
             {
@@ -142,7 +142,7 @@ int MainWindow::func()
             ADTS Header in front of AVPacket data manually.
             Other Audio Codec (MP3...) works well.
             */
-            printf("Write Audio Packet. size:%d\tpts:%lld\n",pkt.size,pkt.pts);
+//            printf("Write Audio Packet. size:%d\tpts:%lld\n",pkt.size,pkt.pts);
             fwrite(pkt.data,1,pkt.size,fp_audio);
         }
         av_free_packet(&pkt);
