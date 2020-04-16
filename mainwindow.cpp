@@ -1,5 +1,8 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include <thread>
+#include <QTime>
+#include <QDebug>
 
 
 /**
@@ -65,13 +68,14 @@ extern "C"
 //'1': Use H.264 Bitstream Filter
 #define USE_H264BSF 1
 
-int MainWindow::func()
+int func(void *param)
 {
+    MainWindow *pthis = static_cast<MainWindow*> (param);
     AVFormatContext *ifmt_ctx = NULL;
     AVPacket pkt;
     int ret, i;
     int videoindex=-1,audioindex=-1;
-    const char *in_filename  = "http://192.168.1.140:9090/videoplay/test1080p.mp4";//Input file URL
+    const char *in_filename  = "http://192.168.1.140:9090/videoplay/test720p.mp4";//Input file URL
     const char *out_filename_v = "cuc_ieschool.h264";//Output file URL
     const char *out_filename_a = "cuc_ieschool.aac";
 
@@ -113,9 +117,10 @@ int MainWindow::func()
 #if USE_H264BSF
     AVBitStreamFilterContext* h264bsfc =  av_bitstream_filter_init("h264_mp4toannexb");
 #endif
-
+    QTime time;
     while(av_read_frame(ifmt_ctx, &pkt)>=0){
         if(pkt.stream_index==videoindex){
+            time.start();
 #if USE_H264BSF
             av_bitstream_filter_filter(h264bsfc, ifmt_ctx->streams[videoindex]->codec, NULL, &pkt.data, &pkt.size, pkt.data, pkt.size, 0);
 #endif
@@ -127,15 +132,17 @@ int MainWindow::func()
                 int offset = 0;
                 while(tmp > 81920)
                 {
-                    m_player->draw(pkt.data + offset, 81920);
+                    pthis->m_player->draw(pkt.data + offset, 81920);
                     offset += 81920;
                     tmp -= 81920;
                 }
                 if (offset + tmp <= pkt.size)
-                    m_player->draw(pkt.data + offset, tmp);
+                    pthis->m_player->draw(pkt.data + offset, tmp);
             }
             else
-                m_player->draw(pkt.data, pkt.size);
+                pthis->m_player->draw(pkt.data, pkt.size);
+
+            qDebug() << "total use time: " << time.elapsed() << "ms";
         }else if(pkt.stream_index==audioindex){
             /*
             AAC in some container format (FLV, MP4, MKV etc.) need to add 7 Bytes
@@ -170,6 +177,9 @@ MainWindow::MainWindow(QWidget *parent) :
 {
     ui->setupUi(this);
     m_player = new OMXH264Player();
+    dialog = new Dialog();
+    connect(m_player, SIGNAL(sendImg(QImage)), dialog, SLOT(showImg(QImage)));
+    dialog->show();
 }
 
 MainWindow::~MainWindow()
@@ -179,7 +189,7 @@ MainWindow::~MainWindow()
 
 void MainWindow::on_pushButton_clicked()
 {
-    func();
+    td = new std::thread(func, this);
 }
 
 void MainWindow::on_pushButton_2_clicked()

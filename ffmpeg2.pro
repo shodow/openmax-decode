@@ -27,14 +27,17 @@ CONFIG += c++11
 SOURCES += \
         main.cpp \
         mainwindow.cpp \
-    OMXH264Player.cpp
+    OMXH264Player.cpp \
+    dialog.cpp
 
 HEADERS += \
         mainwindow.h \
-    OMXH264Player.h
+    OMXH264Player.h \
+    dialog.h
 
 FORMS += \
-        mainwindow.ui
+        mainwindow.ui \
+    dialog.ui
 
 INCLUDEPATH += /opt/vc/include/ /opt/vc/src/hello_pi/libs/ilclient
 LIBS += -L/opt/vc/lib -lopenmaxil -lbcm_host  -L/opt/vc/src/hello_pi/libs/ilclient -lilclient -lvcos `pkg-config libavcodec libavdevice libavfilter libavformat libavutil libswscale --libs`

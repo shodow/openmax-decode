@@ -1,5 +1,6 @@
 #include "OMXH264Player.h"
 #include <QDebug>
+#include <QTime>
  
 OMXH264Player::OMXH264Player(QObject *parent):
     QObject(parent),
@@ -7,8 +8,9 @@ OMXH264Player::OMXH264Player(QObject *parent):
     port_settings_changed(0),
     first_packet(1),
     omxbuf(NULL)
- //   omxOutBuf(NULL)
 {
+
+    fd = fopen("yuv", "wb");
     int err=0;
     qDebug()<<"OMXH264Player constructor start";
     bcm_host_init();
@@ -141,6 +143,8 @@ OMXH264Player::~OMXH264Player(){
 }
 
 void OMXH264Player::draw( unsigned char * image, int size){
+    QTime time;
+    time.start();
 //    qDebug()<<"write "<<size;
     if(size > 81920){
         qDebug()<<"write size larger than omxbuf size, largest 81920";
@@ -175,38 +179,56 @@ void OMXH264Player::draw( unsigned char * image, int size){
         int err = ilclient_wait_for_event(video_decode, OMX_EventPortSettingsChanged, 131, 0, 0, 1,
                                           ILCLIENT_EVENT_ERROR | ILCLIENT_PARAMETER_CHANGED, 2000);
         if (err < 0) {
-            printf("Wait for port settings changed timed out\n");
+            qDebug("Wait for port settings changed timed out\n");
         } else {
             first_packet = 0;
         }
         err = ilclient_remove_event(video_decode, OMX_EventPortSettingsChanged, 131, 0, 0, 1);
         if (err < 0) {
-            printf("Wait for remove port settings changed timed out\n");
+            qDebug("Wait for remove port settings changed timed out\n");
         } else {
             first_packet = 0;
         }
         if (!first_packet)
         {
             OMX_PARAM_PORTDEFINITIONTYPE portdef;
-            printf("Port settings changed\n");
+            qDebug() << "Port settings changed\n";
             // need to setup the input for the resizer with the output of the
             // decoder
             portdef.nSize = sizeof(OMX_PARAM_PORTDEFINITIONTYPE);
             portdef.nVersion.nVersion = OMX_VERSION;
             portdef.nPortIndex = 131;
             OMX_GetParameter(ilclient_get_handle(video_decode), OMX_IndexParamPortDefinition, &portdef);
+
+            portdef.format.video.eColorFormat = OMX_COLOR_Format24bitRGB888;
+            OMX_SetParameter(ilclient_get_handle(video_decode), OMX_IndexParamPortDefinition, &portdef);
             unsigned int uWidth = (unsigned int) portdef.format.video.nFrameWidth;
             unsigned int uHeight = (unsigned int) portdef.format.video.nFrameHeight;
             unsigned int uStride = (unsigned int) portdef.format.video.nStride;
             unsigned int uSliceHeight = (unsigned int) portdef.format.video.nSliceHeight;
-            printf("Frame width %d, frame height %d, stride %d, slice height %d\n",
-                    uWidth, uHeight, uStride, uSliceHeight);
-            printf("Getting format Compression 0x%x Color Format: 0x%x\n",
-                    (unsigned int) portdef.format.video.eCompressionFormat,
-                    (unsigned int) portdef.format.video.eColorFormat);
+            qDebug() << QString("Frame width %1, frame height %2, stride %3, slice height %4").arg(uWidth)
+                    .arg(uHeight).arg(uStride).arg(uSliceHeight);
+            qDebug() << QString("Getting format Compression %1 Color Format: %2")
+                        .arg((unsigned int) portdef.format.video.eCompressionFormat)
+                        .arg((unsigned int) portdef.format.video.eColorFormat);
             // now enable output port since port params have been set
             ilclient_enable_port_buffers(video_decode, 131, NULL, NULL, NULL);
             ilclient_enable_port(video_decode, 131);
+            width = uStride;
+            height = uSliceHeight;
+
+            int yuvSize = width * height * 3 /2;
+            yuvBuffer = (uint8_t *)malloc(yuvSize);
+            //为每帧图像分配内存
+            pFrame = av_frame_alloc();
+            pFrameRGB = av_frame_alloc();
+            int numBytes = avpicture_get_size(AV_PIX_FMT_RGB32, width,height);
+            rgbBuffer = (uint8_t *) av_malloc(numBytes * sizeof(uint8_t));
+            avpicture_fill((AVPicture *) pFrameRGB, rgbBuffer, AV_PIX_FMT_RGB32,width, height);
+            //特别注意 img_convert_ctx 该在做H264流媒体解码时候，发现sws_getContext /sws_scale内存泄露问题，
+            //注意sws_getContext只能调用一次，在初始化时候调用即可，另外调用完后，在析构函数中使用sws_free_Context，将它的内存释放。
+            //设置图像转换上下文
+            img_convert_ctx = sws_getContext(width, height, AV_PIX_FMT_YUV420P, width, height, AV_PIX_FMT_RGB32, SWS_BICUBIC, NULL, NULL, NULL);
         }
     }else {
         // omxbuf->nFlags = OMX_BUFFERFLAG_TIME_UNKNOWN;
@@ -215,13 +237,31 @@ void OMXH264Player::draw( unsigned char * image, int size){
         omxbuf = ilclient_get_output_buffer(video_decode, 131, 0 /* no block */);
         if (omxbuf != NULL) {
             if (OMX_FillThisBuffer(ilclient_get_handle(video_decode), omxbuf) != OMX_ErrorNone) {
-                printf("Fill buffer error\n");
+                qDebug() << "Fill buffer error";
             }
-            qDebug() << omxbuf->nFilledLen;
-            qDebug() << omxbuf->nFlags;
-            qDebug() << omxbuf->nOffset;
+            else
+            {
+                qDebug() << omxbuf->nFilledLen;
+//                qDebug() << omxbuf->nFlags;
+                qDebug() << omxbuf->nOffset;
+//                qDebug() << omxbuf->pBuffer;
+
+                //            fwrite(omxbuf->pBuffer + omxbuf->nOffset, omxbuf->nFilledLen, 1, fd);
+                unsigned char *yuvdata = omxbuf->pBuffer + omxbuf->nOffset;
+
+                avpicture_fill((AVPicture *) pFrame, (uint8_t *)yuvdata, AV_PIX_FMT_YUV420P, width, height);//这里的长度和高度跟之前保持一致
+                //转换图像格式，将解压出来的YUV420P的图像转换为RGB的图像
+                sws_scale(img_convert_ctx,
+                         (uint8_t const * const *) pFrame->data,
+                         pFrame->linesize, 0, height, pFrameRGB->data,
+                         pFrameRGB->linesize);
+                //把这个RGB数据 用QImage加载
+                QImage tmpImg((uchar *)rgbBuffer, width, height, QImage::Format_RGB32);
+                qDebug() << "use time:" << time.elapsed() << "ms";
+                emit sendImg(tmpImg);
+            }
         } else {
-            printf("No filled buffer\n");
+            qDebug() << "No filled buffer";
         }
     }
  
