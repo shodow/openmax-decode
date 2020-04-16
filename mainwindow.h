@@ -4,6 +4,7 @@
 #include "dialog.h"
 #include <QMainWindow>
 #include <OMXH264Player.h>
+#include "GLYuvWidget.h"
 #include <thread>
 
 namespace Ui {
@@ -26,6 +27,7 @@ public:
     OMXH264Player *m_player;
     Dialog *dialog;
     QImage *img;
+    GLYuvWidget *m_pGLYuvWidget;
 private:
     Ui::MainWindow *ui;
 

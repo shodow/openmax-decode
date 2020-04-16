@@ -75,7 +75,7 @@ int func(void *param)
     AVPacket pkt;
     int ret, i;
     int videoindex=-1,audioindex=-1;
-    const char *in_filename  = "http://192.168.1.140:9090/videoplay/test720p.mp4";//Input file URL
+    const char *in_filename  = "http://192.168.1.140:9090/videoplay/test1080p.mp4";//Input file URL
     const char *out_filename_v = "cuc_ieschool.h264";//Output file URL
     const char *out_filename_a = "cuc_ieschool.aac";
 
@@ -177,9 +177,10 @@ MainWindow::MainWindow(QWidget *parent) :
 {
     ui->setupUi(this);
     m_player = new OMXH264Player();
+    m_pGLYuvWidget = new GLYuvWidget();
     dialog = new Dialog();
-    connect(m_player, SIGNAL(sendImg(QImage)), dialog, SLOT(showImg(QImage)));
-    dialog->show();
+    connect(m_player, SIGNAL(sendImg(uchar*,uint,uint)),
+            m_pGLYuvWidget, SLOT(slotShowYuv(uchar*,uint,uint)));
 }
 
 MainWindow::~MainWindow()
@@ -194,5 +195,6 @@ void MainWindow::on_pushButton_clicked()
 
 void MainWindow::on_pushButton_2_clicked()
 {
-    m_player->playbackTest();
+//    dialog->show();
+    m_pGLYuvWidget->show();
 }

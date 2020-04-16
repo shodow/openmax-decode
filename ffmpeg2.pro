@@ -28,12 +28,16 @@ SOURCES += \
         main.cpp \
         mainwindow.cpp \
     OMXH264Player.cpp \
-    dialog.cpp
+    dialog.cpp \
+    GLYuvWidget.cpp \
+    YUV420P_Render.cpp
 
 HEADERS += \
         mainwindow.h \
     OMXH264Player.h \
-    dialog.h
+    dialog.h \
+    GLYuvWidget.h \
+    YUV420P_Render.h
 
 FORMS += \
         mainwindow.ui \

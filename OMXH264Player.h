@@ -16,7 +16,7 @@ class OMXH264Player: public QObject
 {
    Q_OBJECT
 signals:
-    void sendImg(QImage);
+    void sendImg(uchar*,uint,uint);
 public:
     OMXH264Player(QObject *parent = 0);
     ~OMXH264Player();
@@ -37,11 +37,7 @@ public:
     FILE *fd;
     int width, height;
 
-    uint8_t *yuvBuffer;
-    AVFrame *pFrame ;
-    AVFrame *pFrameRGB;
-    uint8_t * rgbBuffer;
-    SwsContext *img_convert_ctx;
+
 };
  
 #endif // OMXH264PLAYER_H
