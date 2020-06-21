@@ -1,7 +1,9 @@
 #include "dialog.h"
 #include "ui_dialog.h"
 #include <QTime>
+#include <QTimer>
 #include <QDebug>
+
 Dialog::Dialog(QWidget *parent) :
     QDialog(parent),
     ui(new Ui::Dialog),
@@ -10,6 +12,11 @@ Dialog::Dialog(QWidget *parent) :
 {
     ui->setupUi(this);
     setAutoFillBackground(true);
+//    resize(1920, 1080);
+    setWindowOpacity(0.5);
+//    QTimer* t1 = new QTimer(this);
+//    connect(t1,SIGNAL(timeout()),this,SLOT(showRgb()));
+//    t1->start(10);
 }
 
 Dialog::~Dialog()
@@ -46,16 +53,16 @@ void Dialog::slotShowYuv(uchar *ptr, uint width, uint height)
     }
     videoW = width;
     videoH = height;
-
-    update();
+    showRgb();
+    //    update();
 }
 
-void Dialog::paintEvent(QPaintEvent *event)
+void Dialog::showRgb()
 {
     if (videoW >0 && videoH > 0)
     {
-        QTime time;
-        time.start();
+//        QTime time;
+//        time.start();
         avpicture_fill((AVPicture *) pFrame, (uint8_t *)yuvPtr,
                        AV_PIX_FMT_YUV420P, videoW, videoH);//这里的长度和高度跟之前保持一致
         //转换图像格式，将解压出来的YUV420P的图像转换为RGB的图像
@@ -63,12 +70,21 @@ void Dialog::paintEvent(QPaintEvent *event)
                   (uint8_t const * const *) pFrame->data,
                   pFrame->linesize, 0, videoH, pFrameRGB->data,
                   pFrameRGB->linesize);
-        //把这个RGB数据 用QImage加载
-        QImage tmpImg((uchar *)rgbBuffer, videoW, videoH, QImage::Format_RGB32);
 
+//        qDebug() << "YUV2RGB use time: " << time.elapsed() << "ms";
+//        time.restart();
+        //把这个RGB数据 用QImage加载
+
+        QImage tmpImg((uchar *)rgbBuffer, videoW, videoH, QImage::Format_RGB32);
+//        tmpImg = ttmpImg.scaled(1080, 1920);
         QPalette palette;
-        palette.setBrush(QPalette::Window, QBrush(tmpImg.scaled(this->size())));
+        palette.setBrush(QPalette::Window, QBrush(tmpImg));
         this->setPalette(palette);
-        qDebug() << "YUV2RGB use time: " << time.elapsed() << "ms";
+//        qDebug() << "show img use time: " << time.elapsed() << "ms";
     }
+}
+
+void Dialog::paintEvent(QPaintEvent *event)
+{
+
 }

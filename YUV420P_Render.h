@@ -5,6 +5,9 @@
 #include <QOpenGLWidget>
 #include <QOpenGLFunctions>
 #include <QOpenGLShaderProgram>
+#include <QTime>
+#include <QGLShaderProgram>
+
 class YUV420P_Render: protected QOpenGLFunctions
 {
 
@@ -15,7 +18,6 @@ public:
     //初始化gl
     void initialize();
     //刷新显示
-    void render(uchar* py,uchar* pu,uchar* pv,int width,int height,int type);
     void render(uchar* ptr,int width,int height,int type);
 
 private:
@@ -26,6 +28,8 @@ private:
     //创建纹理
     GLuint m_idy , m_idu , m_idv;
 
+    QTime time;
+    bool m_first;
 };
 
 #endif // YUV420P_RENDER_H

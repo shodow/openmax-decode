@@ -3,67 +3,20 @@
 #include <thread>
 #include <QTime>
 #include <QDebug>
-
-
-/**
- * 最简单的基于FFmpeg的视音频分离器（简化版）
- * Simplest FFmpeg Demuxer Simple
- *
- * 雷霄骅 Lei Xiaohua
- * leixiaohua1020@126.com
- * 中国传媒大学/数字电视技术
- * Communication University of China / Digital TV Technology
- * http://blog.csdn.net/leixiaohua1020
- *
- * 本程序可以将封装格式中的视频码流数据和音频码流数据分离出来。
- * 在该例子中， 将FLV的文件分离得到H.264视频码流文件和MP3
- * 音频码流文件。
- *
- * 注意：
- * 这个是简化版的视音频分离器。与原版的不同在于，没有初始化输出
- * 视频流和音频流的AVFormatContext。而是直接将解码后的得到的
- * AVPacket中的的数据通过fwrite()写入文件。这样做的好处是流程比
- * 较简单。坏处是对一些格式的视音频码流是不适用的，比如说
- * FLV/MP4/MKV等格式中的AAC码流（上述封装格式中的AAC的AVPacket中
- * 的数据缺失了7字节的ADTS文件头）。
- *
- *
- * This software split a media file (in Container such as
- * MKV, FLV, AVI...) to video and audio bitstream.
- * In this example, it demux a FLV file to H.264 bitstream
- * and MP3 bitstream.
- * Note:
- * This is a simple version of "Simplest FFmpeg Demuxer". It is
- * more simple because it doesn't init Output Video/Audio stream's
- * AVFormatContext. It write AVPacket's data to files directly.
- * The advantages of this method is simple. The disadvantages of
- * this method is it's not suitable for some kind of bitstreams. For
- * example, AAC bitstream in FLV/MP4/MKV Container Format(data in
- * AVPacket lack of 7 bytes of ADTS header).
- *
- */
+#include <unistd.h>
 
 #include <stdio.h>
 
 #define __STDC_CONSTANT_MACROS
+#define MAX_AUDIO_FRAME_SIZE 192000 // 1 second of 48khz 32bit audio
 
-#ifdef _WIN32
-//Windows
-extern "C"
-{
+extern "C"{
+#include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
-};
-#else
-//Linux...
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-#include <libavformat/avformat.h>
-#ifdef __cplusplus
-};
-#endif
-#endif
+#include "libswscale/swscale.h"
+#include "libavdevice/avdevice.h"
+#include <libswresample/swresample.h>
+}
 
 //'1': Use H.264 Bitstream Filter
 #define USE_H264BSF 1
@@ -75,15 +28,23 @@ int func(void *param)
     AVPacket pkt;
     int ret, i;
     int videoindex=-1,audioindex=-1;
-    const char *in_filename  = "http://192.168.1.140:9090/videoplay/test1080p.mp4";//Input file URL
-    const char *out_filename_v = "cuc_ieschool.h264";//Output file URL
-    const char *out_filename_a = "cuc_ieschool.aac";
+
+    // Audio
+    AVCodecContext *pCodecCtx;
+    AVCodec			*pCodec;
+    uint8_t			*out_buffer;
+    AVFrame			*pFrame;
+    int64_t in_channel_layout;
+    struct SwrContext *au_convert_ctx;
+    FILE *pFile=NULL;
+
+    qDebug() << pthis->m_url;
 
     av_register_all();
     //Network
     avformat_network_init();
     //Input
-    if ((ret = avformat_open_input(&ifmt_ctx, in_filename, 0, 0)) < 0) {
+    if ((ret = avformat_open_input(&ifmt_ctx, pthis->m_url.toUtf8(), 0, 0)) < 0) {
         printf( "Could not open input file.");
         return -1;
     }
@@ -101,11 +62,50 @@ int func(void *param)
     }
     //Dump Format------------------
     printf("\nInput Video===========================\n");
-    av_dump_format(ifmt_ctx, 0, in_filename, 0);
+    av_dump_format(ifmt_ctx, 0, pthis->m_url.toUtf8(), 0);
     printf("\n======================================\n");
 
-    FILE *fp_audio=fopen(out_filename_a,"wb+");
-    FILE *fp_video=fopen(out_filename_v,"wb+");
+
+    // 初始化音频解码器
+    // Get a pointer to the codec context for the audio stream
+    pCodecCtx=ifmt_ctx->streams[audioindex]->codec;
+
+    // Find the decoder for the audio stream
+    pCodec=avcodec_find_decoder(pCodecCtx->codec_id);
+    if(pCodec==NULL){
+        printf("Codec not found.\n");
+        return -1;
+    }
+
+    // Open codec
+    if(avcodec_open2(pCodecCtx, pCodec,NULL)<0){
+        printf("Could not open codec.\n");
+        return -1;
+    }
+
+    //Out Audio Param
+    uint64_t out_channel_layout=AV_CH_LAYOUT_STEREO;
+    //nb_samples: AAC-1024 MP3-1152
+    int out_nb_samples=pCodecCtx->frame_size;
+    AVSampleFormat out_sample_fmt=AV_SAMPLE_FMT_S16;
+    int out_sample_rate=44100;
+    int out_channels=av_get_channel_layout_nb_channels(out_channel_layout);
+    //Out Buffer Size
+    int out_buffer_size=av_samples_get_buffer_size(NULL,out_channels ,out_nb_samples,out_sample_fmt, 1);
+
+    out_buffer=(uint8_t *)av_malloc(MAX_AUDIO_FRAME_SIZE*2);
+    pFrame=av_frame_alloc();
+
+    //FIX:Some Codec's Context Information is missing
+    in_channel_layout=av_get_default_channel_layout(pCodecCtx->channels);
+    //Swr
+
+    au_convert_ctx = swr_alloc();
+    au_convert_ctx=swr_alloc_set_opts(au_convert_ctx,out_channel_layout, out_sample_fmt, out_sample_rate,
+        in_channel_layout,pCodecCtx->sample_fmt , pCodecCtx->sample_rate,0, NULL);
+    swr_init(au_convert_ctx);
+
+
 
     /*
     FIX: H.264 in some container format (FLV, MP4, MKV etc.) need
@@ -114,53 +114,80 @@ int func(void *param)
       *Add start code ("0,0,0,1") in front of NALU
     H.264 in some container (MPEG2TS) don't need this BSF.
     */
+    int tmpBuffOff = 0;
+    unsigned char* tmpBuff = new unsigned char[81920 * 50];
+    unsigned char* tmpBuff2 = new unsigned char[81920];
+    memset(tmpBuff, 0, 81920 * 50);
+    memset(tmpBuff2, 0, 81920);
+//    FILE *fp = fopen("h264", "wb");
 #if USE_H264BSF
     AVBitStreamFilterContext* h264bsfc =  av_bitstream_filter_init("h264_mp4toannexb");
 #endif
     QTime time;
+    pthis->m_player->startPlay();
     while(av_read_frame(ifmt_ctx, &pkt)>=0){
         if(pkt.stream_index==videoindex){
-            time.start();
+//            time.start();
 #if USE_H264BSF
             av_bitstream_filter_filter(h264bsfc, ifmt_ctx->streams[videoindex]->codec, NULL, &pkt.data, &pkt.size, pkt.data, pkt.size, 0);
 #endif
-//            printf("Write Video Packet. size:%d\tpts:%lld\n",pkt.size,pkt.pts);
-            fwrite(pkt.data,1,pkt.size,fp_video);
-            if (pkt.size > 81920)
+            memcpy(tmpBuff + tmpBuffOff, pkt.data, pkt.size);
+            tmpBuffOff += pkt.size;
+//            fwrite(pkt.data,1,pkt.size,fp_video);
+            // 数据长度不够81920的等待之后的数据组成81920长度的数据
+            // 数据长度超过81920的数据切割成多个包
+            if (tmpBuffOff > 81920)
             {
-                int tmp = pkt.size;
+                int tmp = tmpBuffOff;
                 int offset = 0;
                 while(tmp > 81920)
                 {
-                    pthis->m_player->draw(pkt.data + offset, 81920);
+                    // 推到解码队列中等待解码
+                    pthis->m_player->pushData(tmpBuff + offset, 81920, 0);
+//                    fwrite(tmpBuff + offset, 1, 81920, fp);
                     offset += 81920;
                     tmp -= 81920;
                 }
-                if (offset + tmp <= pkt.size)
-                    pthis->m_player->draw(pkt.data + offset, tmp);
+                if (tmp > 0)
+                {
+                    memmove(tmpBuff2, tmpBuff + offset, tmp);
+                    memset(tmpBuff, 0, 81920 * 50);
+                    memmove(tmpBuff, tmpBuff2, tmp);
+                    tmpBuffOff = tmp;
+                }
             }
-            else
-                pthis->m_player->draw(pkt.data, pkt.size);
-
-            qDebug() << "total use time: " << time.elapsed() << "ms";
         }else if(pkt.stream_index==audioindex){
             /*
             AAC in some container format (FLV, MP4, MKV etc.) need to add 7 Bytes
             ADTS Header in front of AVPacket data manually.
             Other Audio Codec (MP3...) works well.
             */
-//            printf("Write Audio Packet. size:%d\tpts:%lld\n",pkt.size,pkt.pts);
-            fwrite(pkt.data,1,pkt.size,fp_audio);
+
+            int got_picture = -1;
+            ret = avcodec_decode_audio4(pCodecCtx, pFrame, &got_picture, &pkt);
+            if ( ret < 0 ) {
+                qDebug("Error in decoding audio frame.\n");
+            }
+            if ( got_picture > 0 ){
+                swr_convert(au_convert_ctx, &out_buffer, MAX_AUDIO_FRAME_SIZE,
+                            (const uint8_t **)pFrame->data, pFrame->nb_samples);
+                // 推入到音频解码队列中等待解码音频数据
+                pthis->m_player->pushData(out_buffer, out_buffer_size, 1);
+            }
+            else {
+                qDebug() << "got_picture: " << got_picture;
+            }
         }
         av_free_packet(&pkt);
     }
-
+    pthis->m_player->endPlay();
 #if USE_H264BSF
     av_bitstream_filter_close(h264bsfc);
 #endif
 
-    fclose(fp_video);
-    fclose(fp_audio);
+//    fclose(fp_video);
+//    fclose(fp_audio);
+    fclose(pFile);
 
     avformat_close_input(&ifmt_ctx);
 
@@ -176,11 +203,19 @@ MainWindow::MainWindow(QWidget *parent) :
     ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+    setAttribute(Qt::WA_TranslucentBackground);
     m_player = new OMXH264Player();
-    m_pGLYuvWidget = new GLYuvWidget();
-    dialog = new Dialog();
-    connect(m_player, SIGNAL(sendImg(uchar*,uint,uint)),
-            m_pGLYuvWidget, SLOT(slotShowYuv(uchar*,uint,uint)));
+//    m_audio = new OMXAudio();
+//    m_pGLYuvWidget = new GLYuvWidget();
+//    dialog = new Dialog();
+    setWindowOpacity(0);
+
+//    m_url = "http://192.168.1.140:9090/videoplay/test1080p.mp4";
+//    td = new std::thread(func, this);
+//    dialog->showFullScreen();
+//    connect(m_player, SIGNAL(sendImg(uchar*,uint,uint)),
+//            dialog, SLOT(slotShowYuv(uchar*,uint,uint)));
+    on_pushButton_clicked();
 }
 
 MainWindow::~MainWindow()
@@ -190,11 +225,32 @@ MainWindow::~MainWindow()
 
 void MainWindow::on_pushButton_clicked()
 {
+//    m_url = "http://192.168.1.140:9090/videoplay/" + ui->lineEdit->text();
+    m_url = "http://192.168.3.14:8890/7.mp4";
     td = new std::thread(func, this);
+    this->hide();
 }
 
 void MainWindow::on_pushButton_2_clicked()
 {
-//    dialog->show();
-    m_pGLYuvWidget->show();
+//    dialog->showFullScreen();
+//    connect(m_player, SIGNAL(sendImg(uchar*,uint,uint)),
+//            dialog, SLOT(slotShowYuv(uchar*,uint,uint)));
+}
+
+void MainWindow::on_pushButton_3_clicked()
+{
+//    m_pGLYuvWidget->show();
+//    connect(m_player, SIGNAL(sendImg(uchar*,uint,uint)),
+    //            m_pGLYuvWidget, SLOT(slotShowYuv(uchar*,uint,uint)));
+}
+
+void MainWindow::paintEvent(QPaintEvent *event)
+{
+    Q_UNUSED(event);
+
+    QPainter painter(this);
+
+    // QColor最后一个参数代表alpha通道，一般用作透明度
+    painter.fillRect(rect(), QColor(0, 0, 0, 0));
 }

@@ -1,15 +1,23 @@
 #include "GLYuvWidget.h"
-#include <QOpenGLShaderProgram>
-#include <QOpenGLTexture>
+// #include <QOpenGLShaderProgram>
+// #include <QOpenGLTexture>
 #include <QDebug>
-#define VERTEXIN 0
-#define TEXTUREIN 1
+#include <QTimer>
+// #define VERTEXIN 0
+// #define TEXTUREIN 1
 
 GLYuvWidget::GLYuvWidget(QWidget *parent):
     QOpenGLWidget(parent)
 {
+    videoW = 0;
+    videoH = 0;
+    yuvPtr = nullptr;
+//    resize(1080, 1920);
+    resize(1920, 1080);
     m_pYUV420P_Render = new YUV420P_Render();
-    resize(500, 500);
+//    QTimer* t1 = new QTimer(this);
+//    connect(t1,SIGNAL(timeout()),this,SLOT(update()));
+//    t1->start(40);
 }
 
 GLYuvWidget::~GLYuvWidget()
@@ -157,4 +165,10 @@ void GLYuvWidget::paintGL()
 //     glUniform1i(textureUniformV, 2);
 //     //使用顶点数组方式绘制图形
 //     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+}
+
+
+void GLYuvWidget::resizeGL(int w, int h)
+{
+    glViewport(0, 0, w, h);
 }

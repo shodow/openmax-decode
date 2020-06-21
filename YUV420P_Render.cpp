@@ -8,6 +8,7 @@
 
 YUV420P_Render::YUV420P_Render()
 {
+    m_first = true;
 }
 
 YUV420P_Render::~YUV420P_Render()
@@ -17,15 +18,12 @@ YUV420P_Render::~YUV420P_Render()
     //初始化gl
 void YUV420P_Render::initialize()
 {
-    qDebug() << "initializeGL";
-
     //初始化opengl （QOpenGLFunctions继承）函数
     initializeOpenGLFunctions();
 
     //顶点shader
     const char *vString =
-       "precision mediump float;\
-        attribute vec4 vertexPosition;\
+       "attribute vec4 vertexPosition;\
         attribute vec2 textureCoordinate;\
         varying vec2 texture_Out;\
         void main(void)\
@@ -35,8 +33,7 @@ void YUV420P_Render::initialize()
         }";
     //片元shader
     const char *tString =
-        "precision mediump float;\
-        varying vec2 texture_Out;\
+        "varying vec2 texture_Out;\
         uniform sampler2D tex_y;\
         uniform sampler2D tex_u;\
         uniform sampler2D tex_v;\
@@ -124,68 +121,81 @@ void YUV420P_Render::initialize()
 
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT);
-
-}
-
-//刷新显示
-void YUV420P_Render::render(uchar* py,uchar* pu,uchar* pv,int width,int height,int type)
-{
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, m_idy);
-    //修改纹理内容(复制内存内容)
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, width, height, 0, GL_RED, GL_UNSIGNED_BYTE,py);
-    //与shader 关联
-    glUniform1i(m_textureUniformY, 0);
-
-    glActiveTexture(GL_TEXTURE0+1);
-    glBindTexture(GL_TEXTURE_2D, m_idu);
-    //修改纹理内容(复制内存内容)
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, width/2, height/2, 0, GL_RED, GL_UNSIGNED_BYTE, pu);
-    //与shader 关联
-    glUniform1i(m_textureUniformU,1);
-
-    glActiveTexture(GL_TEXTURE0+2);
-    glBindTexture(GL_TEXTURE_2D, m_idv);
-     //修改纹理内容(复制内存内容)
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, width/2, height/2, 0, GL_RED, GL_UNSIGNED_BYTE, pv);
-    //与shader 关联
-    glUniform1i(m_textureUniformV, 2);
-
-    glDrawArrays(GL_TRIANGLE_STRIP,0,4);
-    qDebug() << "paintGL";
 }
 
 void YUV420P_Render::render(uchar* ptr,int width,int height,int type)
 {
-	QTime time;
-	time.start();
+    if (width < 1 || height < 1)
+        return;
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
+    //激活第一层纹理，绑定到创建的纹理
+    //下面的width,height主要是显示尺寸？
     glActiveTexture(GL_TEXTURE0);
+    //绑定y对应的纹理
     glBindTexture(GL_TEXTURE_2D, m_idy);
-    //修改纹理内容(复制内存内容)
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, width, height, 0, GL_RED, GL_UNSIGNED_BYTE,ptr);
+
+    if (m_first)
+    {
+        //修改纹理内容(复制内存内容)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, width, height, 0, GL_LUMINANCE,
+                     GL_UNSIGNED_BYTE,ptr);
+    }
+    else {
+        //替换纹理，比重新使用glTexImage2D性能高多
+        glTexSubImage2D(GL_TEXTURE_2D, 0,
+                        0, 0,//相对原来的纹理的offset
+                        width, height,//加载的纹理宽度、高度。最好为2的次幂
+                        GL_LUMINANCE, GL_UNSIGNED_BYTE,
+                        ptr);
+    }
+
     //与shader 关联
     glUniform1i(m_textureUniformY, 0);
 
+    //激活第二层纹理，绑定到创建的纹理
     glActiveTexture(GL_TEXTURE0+1);
+    //绑定u对应的纹理
     glBindTexture(GL_TEXTURE_2D, m_idu);
-    //修改纹理内容(复制内存内容)
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, width/2, height/2, 0, GL_RED, GL_UNSIGNED_BYTE, ptr+width*height);
+    if (m_first)
+    {
+        //修改纹理内容(复制内存内容)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, width/2, height/2, 0, GL_LUMINANCE,
+                     GL_UNSIGNED_BYTE, ptr+width*height);
+    }
+    else
+    {
+        //替换纹理，比重新使用glTexImage2D性能高
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width / 2, height / 2, GL_LUMINANCE,
+                        GL_UNSIGNED_BYTE,
+                        ptr+width*height);
+    }
     //与shader 关联
     glUniform1i(m_textureUniformU,1);
 
+    //激活第三层纹理，绑定到创建的纹理
     glActiveTexture(GL_TEXTURE0+2);
+    //绑定v对应的纹理
     glBindTexture(GL_TEXTURE_2D, m_idv);
-     //修改纹理内容(复制内存内容)
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, width/2, height/2, 0, GL_RED, GL_UNSIGNED_BYTE, ptr+width*height*5/4);
+    if (m_first)
+    {
+        //修改纹理内容(复制内存内容)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, width/2, height/2, 0, GL_LUMINANCE,
+                     GL_UNSIGNED_BYTE, ptr+width*height*5/4);
+    }
+    else
+    {
+        //替换纹理，比重新使用glTexImage2D性能高
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width / 2, height / 2, GL_LUMINANCE,
+                        GL_UNSIGNED_BYTE,
+                        ptr+width*height*5/4);
+    }
+
     //与shader 关联
     glUniform1i(m_textureUniformV, 2);
 
-    glDrawArrays(GL_TRIANGLE_STRIP,0,4);
-    qDebug() << "paintGL use time:" << time.elapsed() << "ms";
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    m_first = false;
+    qDebug() << "paintGL";
 }

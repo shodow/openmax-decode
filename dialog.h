@@ -22,6 +22,7 @@ public:
     ~Dialog();
 public slots:
     void slotShowYuv(uchar *ptr, uint width, uint height);
+    void showRgb();
 private:
     Ui::Dialog *ui;
     uint videoW,videoH;
